@@ -1,0 +1,125 @@
+#include <Arduino.h>
+#include <BluetoothSerial.h>
+#include <ArduinoJson.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+  #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+
+// TODO -- Define WiFi credentials
+#define ssid "avocado" //wifi
+#define password "kiwi1234" //parola
+#define url "http://proiectia.bogdanflorea.ro/api/disney-characters/characters" //link
+
+// TODO -- BTC server name
+#define btcServerName "EM" //server
+
+bool deviceConnected = false;
+
+String apiString;
+
+// TODO --  Generate a unique UUID for your Bluetooth service
+// See the following for generating UUIDs:
+// https://www.uuidgenerator.net/
+#define SERVICE_UUID "ca003a11-9cb5-49b9-a448-76254b16ef0d"
+
+// Define the BluetoothSerial
+BluetoothSerial SerialBT;  //monitor serial BT
+
+// Received data
+String data = "";  //informatiile de la monitorul serial
+
+// The receivedData function is called when data is available on Bluetooth (see loop function)
+void receivedData() {
+  // Read the data using the appropriate SerialBT functions
+  // according to the app specifications
+  // The data is terminated by the new line character (\n)
+  while (SerialBT.available()) {
+    data = SerialBT.readStringUntil('\n'); //citeste de pe monitorul serial BT pana la sfarsitul string-ului
+  }
+
+  StaticJsonDocument<200> jsonData;
+  deserializeJson(jsonData, data);  // string -> document
+
+    DynamicJsonDocument JSONDocument(15000);
+    deserializeJson(JSONDocument, apiString.c_str()); //string-ul din link -> document
+    
+    if(jsonData["action"].as<String>() = "fetchData")
+    {
+      JsonArray list = JSONDocument.as<JsonArray>();
+      for (JsonVariant value : list) 
+      {
+        JsonObject listItem = value.as<JsonObject>(); //fiecare valoare din lista -> obiect de tip Json
+        DynamicJsonDocument temp(15000); //document temporar
+        temp["id"] = listItem["_id"].as<String>();
+        temp["name"] = listItem["name"].as<String>();
+        temp["image"] = listItem["imageUrl"].as<String>();
+
+        String stringTemp;
+        serializeJson(temp, stringTemp); // documentul devine string
+        for(int i = 0; i < stringTemp.length(); i++)
+        {
+          SerialBT.write(uint8_t(stringTemp[i])); // afisare in aplicatie
+        }
+        SerialBT.println(); 
+        delay(100);
+      }
+    }
+    
+  if(jsonData["action"].as<String>() == "fetchDetails")
+      {
+        JsonArray list = JSONDocument.as<JsonArray>();
+        for (JsonVariant value : list) 
+        {
+          JsonObject listItem = value.as<JsonObject>();
+          if(listItem["_id"].as<String>() == jsonData["id"].as<String>())
+          {
+            DynamicJsonDocument temp(15000); //document temporar
+            temp["id"] = listItem["_id"].as<String>();
+            temp["name"] = listItem["name"].as<String>();
+            temp["image"] = listItem["imageUrl"].as<String>();
+            temp["description"] = "Films:"+listItem["films"].as<String>()+'\n'+"Tv Shows:"+listItem["tvShows"].as<String>()+'\n'+"Allies:"+listItem["allies"].as<String>()+'\n'+"Enemies:"+listItem["enemies"].as<String>();
+            String stringTemp;
+            serializeJson(temp,stringTemp);
+            for(int i = 0; i < stringTemp.length(); i++)
+            {
+              SerialBT.write(uint8_t(stringTemp[i]));
+            }
+          SerialBT.println();
+          delay(100); 
+          data = "";
+          return;
+        }
+      }
+  }
+  data = "";
+  }
+
+void setup() {
+  // put your setup code here, to run once:
+  Serial.begin(115200);
+
+  WiFi.begin(ssid,password);  // conectare la wifi
+  while(WiFi.status() != WL_CONNECTED)
+  {
+  }
+
+  HTTPClient api;
+  api.begin(url); //interogarea api-ului
+  if(api.GET() > 0)
+  {
+    apiString = api.getString(); // obtinerea datelor din link
+  }
+  SerialBT.begin(btcServerName);
+  Serial.println("The device started, now you can pair it with bluetooth!");
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  // Check available Bluetooth data and perform read from the app
+  if (SerialBT.available()) {
+    receivedData();
+  }
+}
